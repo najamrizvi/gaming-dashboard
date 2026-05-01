@@ -26,8 +26,7 @@ h1, h2, h3 {
 
 # -----------------------------
 # SAFE DATA LOADER
-# -----------------------------
-@st.cache_data
+# -----------------------------@st.cache_data
 def load_data():
     try:
         df = pd.read_csv("Gaming_Academic_Performance.csv")
@@ -38,17 +37,22 @@ def load_data():
     # Clean column names
     df.columns = df.columns.str.strip().str.lower()
 
-    # Convert everything safely
-    for col in df.columns:
-        df[col] = df[col].replace(["", "NA", "N/A", "null"], np.nan)
+    # Replace common nulls
+    df.replace(["", "NA", "N/A", "null"], np.nan, inplace=True)
 
-    # Auto numeric conversion
+    # Convert to numeric safely
     for col in df.columns:
-        df[col] = pd.to_numeric(df[col], errors="ignore")
+        try:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        except:
+            pass  # keep as is if completely non-numeric
 
     # Fill numeric NaNs
     for col in df.select_dtypes(include=np.number).columns:
-        df[col] = df[col].fillna(df[col].median())
+        if df[col].isnull().all():
+            df[col] = df[col].fillna(0)
+        else:
+            df[col] = df[col].fillna(df[col].median())
 
     # Fill categorical NaNs
     for col in df.select_dtypes(include="object").columns:
