@@ -13,7 +13,7 @@ st.set_page_config(
 )
 
 # -----------------------------
-# CLEAN UI
+# STYLING
 # -----------------------------
 st.markdown("""
 <style>
@@ -28,27 +28,33 @@ h1, h2, h3 {
 """, unsafe_allow_html=True)
 
 # -----------------------------
-# LOAD DATA
+# LOAD & CLEAN DATA (SAFE)
 # -----------------------------
 @st.cache_data
 def load_data():
     df = pd.read_csv("Gaming_Academic_Performance.csv")
 
+    # Clean column names
     df.columns = df.columns.str.strip().str.lower()
 
-    # Force numeric conversion where possible
-    for col in df.columns:
-        try:
-            df[col] = pd.to_numeric(df[col])
-        except:
-            pass
+    # Expected columns
+    numeric_cols = ["gaming_hours", "study_hours", "grades", "sleep_hours", "addiction_score"]
+    cat_cols = ["gender", "gaming_genre", "stress_level"]
 
-    # Fill missing values
-    numeric_cols = df.select_dtypes(include=np.number).columns
-    categorical_cols = df.select_dtypes(exclude=np.number).columns
+    # Convert numeric safely
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
 
-    df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].median())
-    df[categorical_cols] = df[categorical_cols].fillna("Unknown")
+    # Fill numeric NaNs
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = df[col].fillna(df[col].median())
+
+    # Fill categorical NaNs
+    for col in cat_cols:
+        if col in df.columns:
+            df[col] = df[col].fillna("Unknown")
 
     return df
 
@@ -58,36 +64,30 @@ df = load_data()
 # HEADER
 # -----------------------------
 st.title("🎮 Gaming vs Academic Performance Dashboard")
-st.subheader("Analyze how gaming habits affect student performance")
+st.subheader("Analyze how gaming habits affect academic performance")
 
 # -----------------------------
 # SIDEBAR FILTERS
 # -----------------------------
 st.sidebar.header("🔍 Filters")
 
-gender = st.sidebar.multiselect(
-    "Gender",
-    df["gender"].unique(),
-    df["gender"].unique()
-)
+def safe_multiselect(column, label):
+    if column in df.columns:
+        return st.sidebar.multiselect(label, df[column].unique(), df[column].unique())
+    return []
 
-genre = st.sidebar.multiselect(
-    "Gaming Genre",
-    df["gaming_genre"].unique(),
-    df["gaming_genre"].unique()
-)
+gender = safe_multiselect("gender", "Gender")
+genre = safe_multiselect("gaming_genre", "Gaming Genre")
+stress = safe_multiselect("stress_level", "Stress Level")
 
-stress = st.sidebar.multiselect(
-    "Stress Level",
-    df["stress_level"].unique(),
-    df["stress_level"].unique()
-)
+filtered_df = df.copy()
 
-filtered_df = df[
-    (df["gender"].isin(gender)) &
-    (df["gaming_genre"].isin(genre)) &
-    (df["stress_level"].isin(stress))
-]
+if "gender" in df.columns:
+    filtered_df = filtered_df[filtered_df["gender"].isin(gender)]
+if "gaming_genre" in df.columns:
+    filtered_df = filtered_df[filtered_df["gaming_genre"].isin(genre)]
+if "stress_level" in df.columns:
+    filtered_df = filtered_df[filtered_df["stress_level"].isin(stress)]
 
 # -----------------------------
 # KPIs
@@ -96,10 +96,24 @@ st.markdown("## 📊 Key Metrics")
 
 col1, col2, col3, col4 = st.columns(4)
 
-col1.metric("🎮 Avg Gaming Hours", f"{filtered_df['gaming_hours'].mean():.2f}")
-col2.metric("📚 Avg Study Hours", f"{filtered_df['study_hours'].mean():.2f}")
-col3.metric("📈 Avg Grades", f"{filtered_df['grades'].mean():.2f}")
-col4.metric("⚠️ Avg Addiction Score", f"{filtered_df['addiction_score'].mean():.2f}")
+def safe_mean(col):
+    return f"{filtered_df[col].mean():.2f}" if col in filtered_df else "N/A"
+
+col1.metric("🎮 Avg Gaming Hours", safe_mean("gaming_hours"))
+col2.metric("📚 Avg Study Hours", safe_mean("study_hours"))
+col3.metric("📈 Avg Grades", safe_mean("grades"))
+col4.metric("⚠️ Avg Addiction Score", safe_mean("addiction_score"))
+
+# -----------------------------
+# CLEAN DATA FOR PLOTTING
+# -----------------------------
+plot_df = filtered_df.copy()
+
+needed_cols = ["gaming_hours", "grades", "addiction_score"]
+existing_cols = [col for col in needed_cols if col in plot_df.columns]
+
+if existing_cols:
+    plot_df = plot_df.dropna(subset=existing_cols)
 
 # -----------------------------
 # CHARTS
@@ -109,88 +123,97 @@ st.markdown("## 📈 Visual Insights")
 col1, col2 = st.columns(2)
 
 with col1:
-    fig = px.scatter(
-        filtered_df,
-        x="gaming_hours",
-        y="grades",
-        color="stress_level",
-        size="addiction_score",
-        title="Gaming Hours vs Grades"
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    if all(col in plot_df.columns for col in ["gaming_hours", "grades"]):
+        fig = px.scatter(
+            plot_df,
+            x="gaming_hours",
+            y="grades",
+            color="stress_level" if "stress_level" in plot_df else None,
+            size="addiction_score" if "addiction_score" in plot_df else None,
+            title="Gaming Hours vs Grades"
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
 with col2:
-    fig = px.scatter(
-        filtered_df,
-        x="study_hours",
-        y="grades",
-        color="gender",
-        title="Study Hours vs Grades"
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    if all(col in plot_df.columns for col in ["study_hours", "grades"]):
+        fig = px.scatter(
+            plot_df,
+            x="study_hours",
+            y="grades",
+            color="gender" if "gender" in plot_df else None,
+            title="Study Hours vs Grades"
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
 # Row 2
 col1, col2 = st.columns(2)
 
 with col1:
-    fig = px.box(
-        filtered_df,
-        x="gaming_genre",
-        y="grades",
-        color="gaming_genre",
-        title="Grades by Gaming Genre"
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    if all(col in plot_df.columns for col in ["gaming_genre", "grades"]):
+        fig = px.box(
+            plot_df,
+            x="gaming_genre",
+            y="grades",
+            color="gaming_genre",
+            title="Grades by Gaming Genre"
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
 with col2:
-    fig = px.histogram(
-        filtered_df,
-        x="gaming_hours",
-        nbins=20,
-        title="Gaming Hours Distribution"
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    if "gaming_hours" in plot_df.columns:
+        fig = px.histogram(
+            plot_df,
+            x="gaming_hours",
+            nbins=20,
+            title="Gaming Hours Distribution"
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
 # Row 3
 col1, col2 = st.columns(2)
 
 with col1:
-    fig = px.pie(
-        filtered_df,
-        names="gaming_genre",
-        title="Genre Popularity"
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    if "gaming_genre" in plot_df.columns:
+        fig = px.pie(
+            plot_df,
+            names="gaming_genre",
+            title="Genre Popularity"
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
 with col2:
-    fig = px.scatter(
-        filtered_df,
-        x="sleep_hours",
-        y="grades",
-        color="stress_level",
-        title="Sleep vs Grades"
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    if all(col in plot_df.columns for col in ["sleep_hours", "grades"]):
+        fig = px.scatter(
+            plot_df,
+            x="sleep_hours",
+            y="grades",
+            color="stress_level" if "stress_level" in plot_df else None,
+            title="Sleep vs Grades"
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
 # -----------------------------
 # HEATMAP
 # -----------------------------
 st.markdown("## 🔥 Correlation Heatmap")
 
-corr = filtered_df.corr(numeric_only=True)
+numeric_df = plot_df.select_dtypes(include=np.number)
 
-fig = go.Figure(
-    data=go.Heatmap(
-        z=corr.values,
-        x=corr.columns,
-        y=corr.columns,
-        colorscale="RdBu",
-        zmin=-1,
-        zmax=1
+if not numeric_df.empty:
+    corr = numeric_df.corr()
+
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=corr.values,
+            x=corr.columns,
+            y=corr.columns,
+            colorscale="RdBu",
+            zmin=-1,
+            zmax=1
+        )
     )
-)
 
-st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True)
 
 # -----------------------------
 # DATA TABLE
@@ -202,4 +225,4 @@ st.dataframe(filtered_df.head(100))
 # FOOTER
 # -----------------------------
 st.markdown("---")
-st.markdown("🚀 Built with Streamlit & Plotly")
+st.markdown("🚀 Built with Streamlit & Plotly | Stable Version")
