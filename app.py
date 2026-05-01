@@ -32,14 +32,22 @@ h1, h2, h3 {
 @st.cache_data
 def load_data():
     df = pd.read_csv("Gaming_Academic_Performance.csv")
+
     df.columns = df.columns.str.strip().str.lower()
 
-    # Handle missing values
+    # Force numeric conversion where possible
     for col in df.columns:
-        if df[col].dtype == "object":
-            df[col] = df[col].fillna("Unknown")
-        else:
-            df[col] = df[col].fillna(df[col].median())
+        try:
+            df[col] = pd.to_numeric(df[col])
+        except:
+            pass
+
+    # Fill missing values
+    numeric_cols = df.select_dtypes(include=np.number).columns
+    categorical_cols = df.select_dtypes(exclude=np.number).columns
+
+    df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].median())
+    df[categorical_cols] = df[categorical_cols].fillna("Unknown")
 
     return df
 
